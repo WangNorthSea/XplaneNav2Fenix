@@ -57,11 +57,7 @@ def insert_airways(awy_file, cursor, connect):
 
 def update_leg_map(cursor, legmap, legSrcMap, legDestMap, wp1, wp1_country, wp2, wp2_country, dir, lvl, awy):
     cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wp1, wp1_country))
-    fetched = cursor.fetchone()
-    if fetched == None:
-        print(wp1, wp1_country)
-    wp1_id = fetched[0]
-    #wp1_id = cursor.fetchone()[0]
+    wp1_id = cursor.fetchone()[0]
     cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wp2, wp2_country))
     wp2_id = cursor.fetchone()[0]
     cursor.execute('SELECT ID FROM Airways WHERE Ident = ?', (awy,)) #the comma can not be ignored
@@ -71,16 +67,24 @@ def update_leg_map(cursor, legmap, legSrcMap, legDestMap, wp1, wp1_country, wp2,
         idx = (leg.awy_id, leg.wp1_id, leg.wp2_id)
         if legmap.get(idx) == None:
             legmap[idx] = leg
-            legSrcMap[(leg.awy_id, leg.wp1_id)] = leg
-            legDestMap[(leg.awy_id, leg.wp2_id)] = leg
+            if legSrcMap.get((leg.awy_id, leg.wp1_id)) == None:
+                legSrcMap[(leg.awy_id, leg.wp1_id)] = set()
+            legSrcMap[(leg.awy_id, leg.wp1_id)].add(leg)
+
+            if legDestMap.get((leg.awy_id, leg.wp2_id)) == None:
+                legDestMap[(leg.awy_id, leg.wp2_id)] = set()
+            legDestMap[(leg.awy_id, leg.wp2_id)].add(leg)
+
             if legSrcMap.get((leg.awy_id, leg.wp2_id)) != None:
-                succ_leg = legSrcMap[(leg.awy_id, leg.wp2_id)]
-                succ_leg.prev = leg
-                leg.succ = succ_leg
+                for leg_itr in legSrcMap[(leg.awy_id, leg.wp2_id)]:
+                    if leg_itr.wp2_id != leg.wp1_id:
+                        leg_itr.prev = leg
+                        leg.succ = leg_itr
             if legDestMap.get((leg.awy_id, leg.wp1_id)) != None:
-                prev_leg = legDestMap[(leg.awy_id, leg.wp1_id)]
-                prev_leg.succ = leg
-                leg.prev = prev_leg
+                for leg_itr in legDestMap[(leg.awy_id, leg.wp1_id)]:
+                    if leg_itr.wp1_id != leg.wp2_id:
+                        leg_itr.succ = leg
+                        leg.prev = leg_itr
         else:
             if legmap[idx].level != leg.level:
                 legmap[idx].level = 'B'    #in both IFR low and IFR high
@@ -91,31 +95,47 @@ def update_leg_map(cursor, legmap, legSrcMap, legDestMap, wp1, wp1_country, wp2,
         idx2 = (leg2.awy_id, leg2.wp1_id, leg2.wp2_id)
         if legmap.get(idx1) == None:
             legmap[idx1] = leg1
-            legSrcMap[(leg1.awy_id, leg1.wp1_id)] = leg1
-            legDestMap[(leg1.awy_id, leg1.wp2_id)] = leg1
+            if legSrcMap.get((leg1.awy_id, leg1.wp1_id)) == None:
+                legSrcMap[(leg1.awy_id, leg1.wp1_id)] = set()
+            legSrcMap[(leg1.awy_id, leg1.wp1_id)].add(leg1)
+
+            if legDestMap.get((leg1.awy_id, leg1.wp2_id)) == None:
+                legDestMap[(leg1.awy_id, leg1.wp2_id)] = set()
+            legDestMap[(leg1.awy_id, leg1.wp2_id)].add(leg1)
+
             if legSrcMap.get((leg1.awy_id, leg1.wp2_id)) != None:
-                succ_leg = legSrcMap[(leg1.awy_id, leg1.wp2_id)]
-                succ_leg.prev = leg1
-                leg1.succ = succ_leg
+                for leg_itr in legSrcMap[(leg1.awy_id, leg1.wp2_id)]:
+                    if leg_itr.wp2_id != leg1.wp1_id:
+                        leg_itr.prev = leg1
+                        leg1.succ = leg_itr
             if legDestMap.get((leg1.awy_id, leg1.wp1_id)) != None:
-                prev_leg = legDestMap[(leg1.awy_id, leg1.wp1_id)]
-                prev_leg.succ = leg1
-                leg1.prev = prev_leg
+                for leg_itr in legDestMap[(leg1.awy_id, leg1.wp1_id)]:
+                    if leg_itr.wp1_id != leg1.wp2_id:
+                        leg_itr.succ = leg1
+                        leg1.prev = leg_itr
         else:
             if legmap[idx1].level != leg1.level:
                 legmap[idx1].level = 'B'
         if legmap.get(idx2) == None:
             legmap[idx2] = leg2
-            legSrcMap[(leg2.awy_id, leg2.wp1_id)] = leg2
-            legDestMap[(leg2.awy_id, leg2.wp2_id)] = leg2
+            if legSrcMap.get((leg2.awy_id, leg2.wp1_id)) == None:
+                legSrcMap[(leg2.awy_id, leg2.wp1_id)] = set()
+            legSrcMap[(leg2.awy_id, leg2.wp1_id)].add(leg2)
+
+            if legDestMap.get((leg2.awy_id, leg2.wp2_id)) == None:
+                legDestMap[(leg2.awy_id, leg2.wp2_id)] = set()
+            legDestMap[(leg2.awy_id, leg2.wp2_id)].add(leg2)
+
             if legSrcMap.get((leg2.awy_id, leg2.wp2_id)) != None:
-                succ_leg = legSrcMap[(leg2.awy_id, leg2.wp2_id)]
-                succ_leg.prev = leg2
-                leg2.succ = succ_leg
+                for leg_itr in legSrcMap[(leg2.awy_id, leg2.wp2_id)]:
+                    if leg_itr.wp2_id != leg2.wp1_id:
+                        leg_itr.prev = leg2
+                        leg2.succ = leg_itr
             if legDestMap.get((leg2.awy_id, leg2.wp1_id)) != None:
-                prev_leg = legDestMap[(leg2.awy_id, leg2.wp1_id)]
-                prev_leg.succ = leg2
-                leg2.prev = prev_leg
+                for leg_itr in legDestMap[(leg2.awy_id, leg2.wp1_id)]:
+                    if leg_itr.wp1_id != leg2.wp2_id:
+                        leg_itr.succ = leg2
+                        leg2.prev = leg_itr
         else:
             if legmap[idx2].level != leg2.level:
                 legmap[idx2].level = 'B'
@@ -229,18 +249,114 @@ def insert_airports_and_runways(src_db, data_path, cursor, connect):
         connect.commit()
     src_conn.close()
 
+def insert_navaids(nav_file, cursor, connect):
+    #Navaids, NavaidLookup, ILSes, Waypoints, WaypointLookup
+    nav_map = {'VOR/DME':[4, 'T'], 'NDB':[5, 'H'], 'ILS-cat-I':[8, 'H']}
+    cursor.execute('SELECT COUNT(*) FROM Navaids')
+    nav_id_start = cursor.fetchone()[0] + 1
+    cursor.execute('SELECT COUNT(*) FROM ILSes')
+    ils_id_start = cursor.fetchone()[0] + 1
+    cursor.execute('SELECT COUNT(*) FROM Waypoints')
+    wpt_id_start = cursor.fetchone()[0] + 1
+    with open(nav_file, 'r') as file:
+        last_ident = None
+        for line in file:
+            line_data = line.strip().split()
+            lat_float = float(line_data[1])
+            lon_float = float(line_data[2])
+            elevation = int(line_data[3])
+            freq_str = line_data[4]
+            range = int(line_data[5])
+            ident = line_data[7]
+            icao_str = line_data[8]
+            country = line_data[9]
+
+            if nav_map.get(line_data[-1]) == None:
+                if ident == last_ident and line_data[-1] == 'DME-ILS':
+                    cursor.execute('UPDATE ILSes SET HasDme = ? WHERE ID = ?', (True, ils_id_start - 1))
+                continue
+
+            type = nav_map[line_data[-1]][0]
+            usage = nav_map[line_data[-1]][1]
+
+            rwy_str = None
+            if type == 8:
+                rwy_str = line_data[10]
+                cursor.execute('SELECT Name FROM Airports WHERE ICAO = ?', (icao_str,))
+                apt_select = cursor.fetchone()
+                if apt_select == None:
+                    continue #ZULZ, no data for it
+                name = apt_select[0]
+            else:
+                name = ''
+                for name_str in line_data[10:-1]:
+                    name += name_str
+
+            freq = 0
+            left_move = 24
+            for number in freq_str:
+                freq += int(number) << left_move
+                left_move -= 4
+
+            #check if existed
+            cursor.execute('SELECT COUNT(*) FROM NavaidLookup WHERE Ident = ? and Type = ? and Country = ?', (ident, type, country))
+            if cursor.fetchone()[0] != 0:
+                continue
+
+            cursor.execute('''
+                INSERT INTO Navaids (Ident, Type, Name, Freq, Usage, Latitude, Longtitude, Elevation,
+                           SlavedVar, MagneticVariation, Range)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
+            ''', (ident, type, name, freq, usage, lat_float, lon_float, elevation, 0, -6.7, range))
+
+            cursor.execute('''
+                INSERT INTO NavaidLookup (Ident, Type, Country, NavKeyCode, ID)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (ident, type, country, 1, nav_id_start))
+
+            cursor.execute('''
+                INSERT INTO Waypoints (Ident, Collocated, Name, Latitude, Longtitude, NavaidID)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (ident, True, name, lat_float, lon_float, nav_id_start))
+
+            cursor.execute('''
+                INSERT INTO WaypointLookup (Ident, Country, ID)
+                VALUES(?, ?, ?)          
+            ''', (ident, country, wpt_id_start))
+
+            if type == 8:
+                #get runway id
+                cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_str,))
+                apt_id = cursor.fetchone()[0]
+                cursor.execute('SELECT ID FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy_str))
+                rwy_id = cursor.fetchone()[0]
+                #insert into table ILSes
+                rwy_str = rwy_str[:2]
+                cursor.execute('''
+                    INSERT INTO ILSes (RunwayID, Freq, GsAngle, Latitude, Longtitude, Category, Ident, LocCourse,
+                            CrossingHeight, HasDme, Elevation)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
+                ''', (rwy_id, freq, 3, lat_float, lon_float, 1, ident, float(rwy_str) * 10, 50, False, elevation))
+                ils_id_start += 1
+            nav_id_start += 1
+            wpt_id_start += 1
+            last_ident = ident
+        connect.commit()
+
 
 path_start = 'E:\\导航数据\\'
 CIFP_PATH = path_start + 'CIFP\\'
 FIX_DATASET = {'FIX.dat', 'FIX_ZPJH.dat', 'FIX_ZPLJ.dat', 'FIX_ZPMS.dat', 'FIX_ZSLY.dat', 'FIX_ZWTN.dat'}
+NAV_DATA = 'NAV.dat'
 AWY_DATA = 'AWY.dat'
 db = 'C:\\ProgramData\\Fenix\\Navdata\\nd.processed.db3'
 src_db = 'C:\\ProgramData\\Fenix\\Navdata\\nd.db3.src'
 conn = sqlite3.connect(db)
 cur = conn.cursor()
-#for dat in FIX_DATASET:
-#    insert_fix(path_start + dat, cur, conn)
-#insert_airports_and_runways(src_db, CIFP_PATH, cur, conn)
-#insert_airways(path_start + AWY_DATA, cur, conn)
-#insert_airwaylegs(path_start + AWY_DATA, cur, conn)
+for dat in FIX_DATASET:
+    insert_fix(path_start + dat, cur, conn)
+insert_airports_and_runways(src_db, CIFP_PATH, cur, conn)
+insert_navaids(path_start + NAV_DATA, cur, conn)
+insert_airways(path_start + AWY_DATA, cur, conn)
+insert_airwaylegs(path_start + AWY_DATA, cur, conn)
 conn.close()
