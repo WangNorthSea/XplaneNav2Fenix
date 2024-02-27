@@ -1,3 +1,4 @@
+import os
 import sqlite3
 
 class AirwayLeg:
@@ -155,15 +156,91 @@ def insert_airwaylegs(awy_file, cursor, connect):
             ''', (leg.awy_id, leg.level, leg.wp1_id, leg.wp2_id, start, end))
         connect.commit()
 
+def insert_airports_and_runways(src_db, data_path, cursor, connect):
+    src_conn = sqlite3.connect(src_db)
+    src_cur = src_conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM Airports')
+    apt_id_start = cursor.fetchone()[0] + 1
+    for root, dirs, files in os.walk(data_path):
+        for file in files:
+            icao_string = file[:-4]
+            src_cur.execute('''SELECT Name, ICAO, Latitude, Longtitude, Elevation, 
+                        TransitionAltitude, TransitionLevel, SpeedLimit, SpeedLimitAltitude, ID
+                        FROM Airports WHERE ICAO = ?
+                        ''', (icao_string,))
+            src_rec = src_cur.fetchone()
+            if src_rec == None:
+                with open(data_path + file, 'r') as file_content:
+                    apt_inserted = False
+                    for line in file_content:
+                        data_vec = line.strip().split(',')
+                        if data_vec[0][0:4] == 'RWY:':
+                            rwy_ident = data_vec[0].strip().split(':')[1][2:]
+                            if rwy_ident[-1] == ' ':
+                                rwy_ident = rwy_ident[:-1]
+                            lat_str = data_vec[7].strip().split(';')[1]
+                            lon_str = data_vec[8]
+                            
+                            if lat_str[0] == 'N':
+                                lat_sign = 1
+                            else:
+                                lat_sign = -1
+
+                            if lon_str[0] == 'E':
+                                lon_sign = 1
+                            else:
+                                lon_sign = -1
+
+                            lat_float = lat_sign * (float(lat_str[1:3]) + (float(lat_str[3:5]) / 60) + (float(lat_str[5:]) / 100 / 3600))
+                            lon_float = lon_sign * (float(lon_str[1:4]) + (float(lon_str[4:6]) / 60) + (float(lon_str[6:]) / 100 / 3600))
+                            #print(rwy_ident + ' ' + str(lat_float) + ' ' + str(lon_float))
+                            if apt_inserted == False:
+                                cursor.execute('''
+                                    INSERT INTO Airports (Name, ICAO, Latitude, Longtitude, Elevation, 
+                                        TransitionAltitude, TransitionLevel, SpeedLimit, SpeedLimitAltitude)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', ('UNKNOW', icao_string, lat_float, lon_float, 1000, 9850, 11800, 250, 10000))
+                                apt_inserted = True
+                            true_heading = float(rwy_ident[:2]) * 10 - 7
+                            cursor.execute('''
+                                INSERT INTO Runways (AirportID, Ident, TrueHeading, Length, Width, Surface, Latitude, Longtitude, Elevation)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)            
+                            ''', (apt_id_start, rwy_ident, true_heading, 11800, 148, 'CON', lat_float, lon_float, 1000))
+                    apt_id_start += 1
+            else:
+                cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_string,))
+                if cursor.fetchone() == None:
+                    cursor.execute('''
+                        INSERT INTO Airports (Name, ICAO, Latitude, Longtitude, Elevation, 
+                                TransitionAltitude, TransitionLevel, SpeedLimit, SpeedLimitAltitude)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (src_rec[0], src_rec[1], src_rec[2], src_rec[3], src_rec[4],
+                        src_rec[5], src_rec[6], src_rec[7], src_rec[8]))
+                    src_cur.execute('''
+                        SELECT Ident, TrueHeading, Length, Width, Surface, Latitude, Longtitude, Elevation
+                        FROM Runways WHERE AirportID = ?
+                    ''', (src_rec[-1],))
+                    for src_rwy_rec in src_cur.fetchall():
+                        cursor.execute('''
+                            INSERT INTO Runways (AirportID, Ident, TrueHeading, Length, Width, Surface, Latitude, Longtitude, Elevation)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (apt_id_start, src_rwy_rec[0], src_rwy_rec[1], src_rwy_rec[2], src_rwy_rec[3], src_rwy_rec[4], src_rwy_rec[5], src_rwy_rec[6], src_rwy_rec[7]))
+                    apt_id_start += 1
+        connect.commit()
+    src_conn.close()
+
 
 path_start = 'E:\\导航数据\\'
+CIFP_PATH = path_start + 'CIFP\\'
 FIX_DATASET = {'FIX.dat', 'FIX_ZPJH.dat', 'FIX_ZPLJ.dat', 'FIX_ZPMS.dat', 'FIX_ZSLY.dat', 'FIX_ZWTN.dat'}
 AWY_DATA = 'AWY.dat'
-db = "C:\\ProgramData\\Fenix\\Navdata\\nd.processed.db3"
+db = 'C:\\ProgramData\\Fenix\\Navdata\\nd.processed.db3'
+src_db = 'C:\\ProgramData\\Fenix\\Navdata\\nd.db3.src'
 conn = sqlite3.connect(db)
 cur = conn.cursor()
 #for dat in FIX_DATASET:
 #    insert_fix(path_start + dat, cur, conn)
+#insert_airports_and_runways(src_db, CIFP_PATH, cur, conn)
 #insert_airways(path_start + AWY_DATA, cur, conn)
-insert_airwaylegs(path_start + AWY_DATA, cur, conn)
+#insert_airwaylegs(path_start + AWY_DATA, cur, conn)
 conn.close()
