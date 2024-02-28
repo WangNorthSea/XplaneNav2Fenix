@@ -343,6 +343,220 @@ def insert_navaids(nav_file, cursor, connect):
             last_ident = ident
         connect.commit()
 
+def insert_terminals(data_path, cursor, connect):
+    #remember to check repeat procedure
+    proc_map = {'STAR':1, 'SID':2, 'APPCH':3}
+    cursor.execute('SELECT COUNT(*) FROM Terminals')
+    tmr_id = cursor.fetchone()[0]
+    for root, dirs, files in os.walk(data_path):
+        for file in files:
+            icao_string = file[:-4]
+            with open(data_path + file, 'r') as tmr_lines:
+                cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_string,))
+                apt_id = cursor.fetchone()[0]
+                last_tmr_name = None
+                for line in tmr_lines:
+                    tmr_data = line.strip().split(',')
+                    name = tmr_data[2]
+                    if tmr_data[0][:3] == 'SID':
+                        proc = proc_map['SID']
+                        if tmr_data[3].__contains__(' ') == False and tmr_data[3][:2] == 'RW':
+                            rwy = tmr_data[3][2:]
+                            if len(rwy) < 1:
+                                print(icao_string)
+                                print(tmr_data)
+                            if rwy[-1] == 'B':
+                                rwy = 'ALL'
+                        else:
+                            rwy = 'ALL'
+                        transition = 'ALL'
+                    elif tmr_data[0][:4] == 'STAR':
+                        proc = proc_map['STAR']
+                        if tmr_data[3].__contains__(' ') == False and tmr_data[3][:2] == 'RW':
+                            rwy = tmr_data[3][2:]
+                            if rwy[-1] == 'B':
+                                rwy = 'ALL'
+                        else:
+                            rwy = 'ALL'
+                        transition = tmr_data[3]
+                        if transition == ' ':
+                            transition = ''
+                    elif tmr_data[0][:5] == 'APPCH':
+                        proc = proc_map['APPCH']
+                        rwy = name[1:4]
+                        if rwy[-1] == '-':
+                            rwy = rwy[:-1]
+                        transition = tmr_data[3]
+                        if transition == ' ':
+                            transition = ''
+                    else:
+                        continue
+                    
+                    if last_tmr_name != name:
+                        last_tmr_name = name
+                        #check if repeated
+                        cursor.execute('SELECT COUNT(*) FROM Terminals WHERE AirportID = ? and Name = ?', (apt_id, name))
+                        if cursor.fetchone()[0] != 0:
+                            continue
+                        
+                        #search RwyID
+                        rwy_id = None
+                        if rwy != 'ALL':
+                            cursor.execute('SELECT ID FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy))
+                            rwy_rec = cursor.fetchone()
+                            if rwy_rec == None:
+                                print(icao_string)
+                                print(tmr_data)
+                            rwy_id = rwy_rec[0]
+
+                        #search IlsID
+                        IlsID = None
+                        if proc == proc_map['APPCH'] and name[0] == 'I':
+                            cursor.execute('SELECT ID FROM ILSes WHERE RunwayID = ?', (rwy_id,))
+                            ils_rec = cursor.fetchone()
+                            if ils_rec != None:
+                                IlsID = ils_rec[0]
+
+                        #insert into terminals
+                        cursor.execute('''
+                            INSERT INTO Terminals (AirportID, Proc, ICAO, FullName, Name, Rwy, RwyID, IlsID)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (apt_id, proc, icao_string, name, name, rwy, rwy_id, IlsID))
+                        tmr_id += 1
+
+                    type = tmr_data[1]
+                    track_code = tmr_data[11]
+                    wpt_ident = tmr_data[4]
+                    country = tmr_data[5]
+
+                    wpt_id = None
+                    wpt_lat = None
+                    wpt_lon = None
+                    if wpt_ident.__contains__(' ') == False:
+                        #search WptID
+                        cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wpt_ident, country))
+                        wpt_rec = cursor.fetchone()
+                        if wpt_rec == None and wpt_ident[:2] == 'RW':
+                            #search Runway Latitude and Longtitude
+                            cursor.execute('SELECT Latitude, Longtitude FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy))
+                            rwy_rec = cursor.fetchone()
+                            if rwy_rec == None:
+                                print(icao_string)
+                                print(tmr_data)
+                                print(rwy)
+                            wpt_lat, wpt_lon = rwy_rec[0], rwy_rec[1]
+                        else:
+                            if wpt_rec == None:
+                                print('Error, this CIFP data contains waypoint not in database, ignored!')
+                                print(icao_string + '.dat')
+                                print(tmr_data)
+                                continue
+                            wpt_id = wpt_rec[0]
+                            #search WptLat, WptLon
+                            cursor.execute('SELECT Latitude, Longtitude FROM Waypoints WHERE ID = ?', (wpt_id,))
+                            wpt_rec = cursor.fetchone()
+                            wpt_lat, wpt_lon = wpt_rec[0], wpt_rec[1]
+
+                    turn_dir = None
+                    if tmr_data[9].__contains__(' ') == False:
+                        turn_dir = tmr_data[9]
+                    
+                    nav_id = None
+                    nav_lat = None
+                    nav_lon = None
+                    nav_bear = None
+                    nav_dist = None
+                    if tmr_data[13].__contains__(' ') == False:
+                        nav_ident = tmr_data[13]
+                        nav_country = tmr_data[14]
+                        #search NavID, NavLat, NavLon
+                        cursor.execute('SELECT ID FROM NavaidLookup WHERE Ident = ? and Country = ?', (nav_ident, nav_country))
+                        nav_rec = cursor.fetchone()
+                        if nav_rec == None:
+                            print('Error, this CIFP data contains navaid not in database, ignored!')
+                            print(icao_string + '.dat')
+                            print(tmr_data)
+                        else:
+                            nav_id = nav_rec[0]
+                            cursor.execute('SELECT Latitude, Longtitude FROM Navaids WHERE ID = ?', (nav_id,))
+                            nav_rec = cursor.fetchone()
+                            nav_lat, nav_lon = nav_rec[0], nav_rec[1]
+                            if tmr_data[18].__contains__(' ') == False:
+                                nav_bear = float(tmr_data[18]) / 10
+                            if tmr_data[19].__contains__(' ') == False:
+                                nav_dist = float(tmr_data[19]) / 10
+                    
+                    course = None
+                    if tmr_data[20].__contains__(' ') == False:
+                        course = float(tmr_data[20]) / 10
+                    
+                    distance = None
+                    if tmr_data[21].__contains__(' ') == False and tmr_data[21][0] != 'T':
+                        distance = float(tmr_data[21]) / 10
+
+                    alt_suffix = None
+                    if tmr_data[22].__contains__(' ') == False:
+                        alt_suffix = tmr_data[22]
+
+                    alt = None
+                    if tmr_data[23].__contains__(' ') == False:
+                        alt = tmr_data[23]
+                        while len(alt) < 5:
+                            alt = '0' + alt
+                        if alt_suffix == '+':
+                            alt += 'A'
+                        elif alt_suffix == '-':
+                            alt += 'B'
+
+                    center_ident = None
+                    center_id = None
+                    center_lat = None
+                    center_lon = None
+                    if tmr_data[30].__contains__(' ') == False:
+                        center_ident = tmr_data[30]
+                        center_country = tmr_data[31]
+                        #search CenterID
+                        if center_ident != icao_string:
+                            cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (center_ident, center_country))
+                            center_rec = cursor.fetchone()
+                            if center_rec == None:
+                                print(icao_string)
+                                print(tmr_data)
+                                print(center_ident + ' ' + center_country)
+                            center_id = center_rec[0]
+                            #search CenterLat, CenterLon
+                            cursor.execute('SELECT Latitude, Longtitude FROM Waypoints WHERE ID = ?', (center_id,))
+                            center_rec = cursor.fetchone()
+                            center_lat, center_lon = center_rec[0], center_rec[1]
+
+                    wpt_desc_code = tmr_data[8]
+
+                    spd_limit_desc = None
+                    spd_limit = None
+                    if tmr_data[26] == '-':
+                        spd_limit_desc = 'B'
+                    elif tmr_data[26] == '+':
+                        spd_limit_desc = 'A'
+
+                    if tmr_data[27].__contains__(' ') == False:
+                        spd_limit = float(tmr_data[27])
+
+                    #insert into TerminalLegs and TerminalLegsEx
+                    cursor.execute('''
+                        INSERT INTO TerminalLegs (TerminalID, Type, Transition, TrackCode, WptID, WptLat, WptLon, 
+                                    TurnDir, NavID, NavLat, NavLon, NavBear, NavDist, Course, 
+                                    Distance, Alt, CenterID, CenterLat, CenterLon, WptDescCode)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
+                    ''', (tmr_id, type, transition, track_code, wpt_id, wpt_lat, wpt_lon, turn_dir,
+                          nav_id, nav_lat, nav_lon, nav_bear, nav_dist, course, distance, alt, center_id, 
+                          center_lat, center_lon, wpt_desc_code))
+                    
+                    cursor.execute('''
+                        INSERT INTO TerminalLegsEx (IsFlyOver, SpeedLimit, SpeedLimitDescription)
+                        VALUES (?, ?, ?)            
+                    ''', (False, spd_limit, spd_limit_desc))
+        connect.commit()
+
 
 path_start = 'E:\\导航数据\\'
 CIFP_PATH = path_start + 'CIFP\\'
@@ -359,4 +573,5 @@ insert_airports_and_runways(src_db, CIFP_PATH, cur, conn)
 insert_navaids(path_start + NAV_DATA, cur, conn)
 insert_airways(path_start + AWY_DATA, cur, conn)
 insert_airwaylegs(path_start + AWY_DATA, cur, conn)
+insert_terminals(CIFP_PATH, cur, conn)
 conn.close()
