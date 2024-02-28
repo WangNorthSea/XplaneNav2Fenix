@@ -274,6 +274,8 @@ def insert_navaids(nav_file, cursor, connect):
             if nav_map.get(line_data[-1]) == None:
                 if ident == last_ident and line_data[-1] == 'DME-ILS':
                     cursor.execute('UPDATE ILSes SET HasDme = ? WHERE ID = ?', (True, ils_id_start - 1))
+                if ident == last_ident and line_data[-1] == 'GS':
+                    cursor.execute('UPDATE ILSes SET LocCourse = ? WHERE ID = ?', (float(line_data[6][-7:]), ils_id_start - 1))
                 continue
 
             type = nav_map[line_data[-1]][0]
@@ -307,7 +309,7 @@ def insert_navaids(nav_file, cursor, connect):
                 INSERT INTO Navaids (Ident, Type, Name, Freq, Usage, Latitude, Longtitude, Elevation,
                            SlavedVar, MagneticVariation, Range)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
-            ''', (ident, type, name, freq, usage, lat_float, lon_float, elevation, 0, -6.7, range))
+            ''', (ident, type, name, freq, usage, lat_float, lon_float, elevation, 0, 0, range))
 
             cursor.execute('''
                 INSERT INTO NavaidLookup (Ident, Type, Country, NavKeyCode, ID)
