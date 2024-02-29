@@ -220,6 +220,9 @@ def insert_airports_and_runways(src_db, data_path, cursor, connect):
                                         TransitionAltitude, TransitionLevel, SpeedLimit, SpeedLimitAltitude)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', ('UNKNOW', icao_string, lat_float, lon_float, 1000, 9850, 11800, 250, 10000))
+                                cursor.execute('''
+                                    INSERT INTO AirportLookup (extID, ID) VALUES (?, ?)
+                                ''', (icao_string[:2] + icao_string, apt_id_start))
                                 apt_inserted = True
                             true_heading = float(rwy_ident[:2]) * 10 - 7
                             cursor.execute('''
@@ -236,6 +239,9 @@ def insert_airports_and_runways(src_db, data_path, cursor, connect):
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (src_rec[0], src_rec[1], src_rec[2], src_rec[3], src_rec[4],
                         src_rec[5], src_rec[6], src_rec[7], src_rec[8]))
+                    cursor.execute('''
+                        INSERT INTO AirportLookup (extID, ID) VALUES (?, ?)
+                    ''', (icao_string[:2] + icao_string, apt_id_start))
                     src_cur.execute('''
                         SELECT Ident, TrueHeading, Length, Width, Surface, Latitude, Longtitude, Elevation
                         FROM Runways WHERE AirportID = ?
@@ -251,7 +257,8 @@ def insert_airports_and_runways(src_db, data_path, cursor, connect):
 
 def insert_navaids(nav_file, cursor, connect):
     #Navaids, NavaidLookup, ILSes, Waypoints, WaypointLookup
-    nav_map = {'VOR/DME':[4, 'T'], 'NDB':[5, 'H'], 'ILS-cat-I':[8, 'H']}
+    # 2 - NDB, 3 - VOR, 4 - ILS, 15 - GLS
+    nav_map = {3:[4, 'T'], 2:[5, 'H'], 4:[8, 'H'], 15:[-1, '']}
     cursor.execute('SELECT COUNT(*) FROM Navaids')
     nav_id_start = cursor.fetchone()[0] + 1
     cursor.execute('SELECT COUNT(*) FROM ILSes')
@@ -262,24 +269,24 @@ def insert_navaids(nav_file, cursor, connect):
         last_ident = None
         for line in file:
             line_data = line.strip().split()
+            row_code = int(line_data[0])
             lat_float = float(line_data[1])
             lon_float = float(line_data[2])
             elevation = int(line_data[3])
             freq_str = line_data[4]
             range = int(line_data[5])
+            course_num = float(line_data[6])
             ident = line_data[7]
             icao_str = line_data[8]
             country = line_data[9]
 
-            if nav_map.get(line_data[-1]) == None:
-                if ident == last_ident and line_data[-1] == 'DME-ILS':
-                    cursor.execute('UPDATE ILSes SET HasDme = ? WHERE ID = ?', (True, ils_id_start - 1))
+            if nav_map.get(row_code) == None:
                 if ident == last_ident and line_data[-1] == 'GS':
-                    cursor.execute('UPDATE ILSes SET LocCourse = ? WHERE ID = ?', (float(line_data[6][-7:]), ils_id_start - 1))
+                    cursor.execute('UPDATE ILSes SET GsAngle = ? WHERE ID = ?', (float(line_data[6][:3]) / 100, ils_id_start - 1))
                 continue
 
-            type = nav_map[line_data[-1]][0]
-            usage = nav_map[line_data[-1]][1]
+            type = nav_map[row_code][0]
+            usage = nav_map[row_code][1]
 
             rwy_str = None
             if type == 8:
@@ -289,6 +296,8 @@ def insert_navaids(nav_file, cursor, connect):
                 if apt_select == None:
                     continue #ZULZ, no data for it
                 name = apt_select[0]
+            elif type == -1:
+                rwy_str = 'RW' + line_data[10]
             else:
                 name = ''
                 for name_str in line_data[10:-1]:
@@ -305,43 +314,63 @@ def insert_navaids(nav_file, cursor, connect):
             if cursor.fetchone()[0] != 0:
                 continue
 
-            cursor.execute('''
-                INSERT INTO Navaids (Ident, Type, Name, Freq, Usage, Latitude, Longtitude, Elevation,
-                           SlavedVar, MagneticVariation, Range)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
-            ''', (ident, type, name, freq, usage, lat_float, lon_float, elevation, 0, 0, range))
+            #get VOR SlavedVar
+            slaved_var = 0
+            if type == 4:
+                slaved_var = course_num
 
-            cursor.execute('''
-                INSERT INTO NavaidLookup (Ident, Type, Country, NavKeyCode, ID)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (ident, type, country, 1, nav_id_start))
-
-            cursor.execute('''
-                INSERT INTO Waypoints (Ident, Collocated, Name, Latitude, Longtitude, NavaidID)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (ident, True, name, lat_float, lon_float, nav_id_start))
-
-            cursor.execute('''
-                INSERT INTO WaypointLookup (Ident, Country, ID)
-                VALUES(?, ?, ?)          
-            ''', (ident, country, wpt_id_start))
-
-            if type == 8:
-                #get runway id
-                cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_str,))
-                apt_id = cursor.fetchone()[0]
-                cursor.execute('SELECT ID FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy_str))
-                rwy_id = cursor.fetchone()[0]
-                #insert into table ILSes
-                rwy_str = rwy_str[:2]
+            if type == 4 or type == 5 or type == 8:
                 cursor.execute('''
-                    INSERT INTO ILSes (RunwayID, Freq, GsAngle, Latitude, Longtitude, Category, Ident, LocCourse,
-                            CrossingHeight, HasDme, Elevation)
+                    INSERT INTO Navaids (Ident, Type, Name, Freq, Usage, Latitude, Longtitude, Elevation,
+                            SlavedVar, MagneticVariation, Range)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
-                ''', (rwy_id, freq, 3, lat_float, lon_float, 1, ident, float(rwy_str) * 10, 50, False, elevation))
-                ils_id_start += 1
-            nav_id_start += 1
-            wpt_id_start += 1
+                ''', (ident, type, name, freq, usage, lat_float, lon_float, elevation, slaved_var, 0, range))
+
+                cursor.execute('''
+                    INSERT INTO NavaidLookup (Ident, Type, Country, NavKeyCode, ID)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (ident, type, country, 1, nav_id_start))
+
+                cursor.execute('''
+                    INSERT INTO Waypoints (Ident, Collocated, Name, Latitude, Longtitude, NavaidID)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (ident, True, name, lat_float, lon_float, nav_id_start))
+
+                cursor.execute('''
+                    INSERT INTO WaypointLookup (Ident, Country, ID)
+                    VALUES(?, ?, ?)          
+                ''', (ident, country, wpt_id_start))
+
+                if type == 8:
+                    #get runway id
+                    cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_str,))
+                    apt_id = cursor.fetchone()[0]
+                    cursor.execute('SELECT ID FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy_str))
+                    rwy_id = cursor.fetchone()[0]
+                    #insert into table ILSes
+                    rwy_str = rwy_str[:2]
+                    mag_course = course_num // 360
+                    cursor.execute('''
+                        INSERT INTO ILSes (RunwayID, Freq, GsAngle, Latitude, Longtitude, Category, Ident, LocCourse,
+                                CrossingHeight, HasDme, Elevation)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
+                    ''', (rwy_id, freq, 3, lat_float, lon_float, 1, ident, mag_course, 50, True, elevation))
+                    ils_id_start += 1
+                nav_id_start += 1
+                wpt_id_start += 1
+            else:
+                #EEU is for East Europe and China
+                area_code = 'EEU'
+                channel = int(freq_str)
+                bearing = float(line_data[6][-7:])
+                slope = float(line_data[6][:3]) / 100
+                cursor.execute('''
+                    INSERT INTO Gls (area_code, airport_identifier, icao_code, gls_ref_path_identifier, gls_category, gls_channel,
+                                    runway_identifier, gls_approach_bearing, station_latitude, station_longitude, gls_station_ident,
+                                    gls_approach_slope, magnetic_variation, station_elevation, station_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)      
+                ''', (area_code, icao_str, country, ident, 1, channel, rwy_str, bearing, lat_float, lon_float, icao_str, slope, 0, elevation, ''))
+
             last_ident = ident
         connect.commit()
 
@@ -360,37 +389,31 @@ def insert_terminals(data_path, cursor, connect):
                 for line in tmr_lines:
                     tmr_data = line.strip().split(',')
                     name = tmr_data[2]
+                    rwy = 'ALL'
+                    transition = ''
                     if tmr_data[0][:3] == 'SID':
                         proc = proc_map['SID']
                         if tmr_data[3].__contains__(' ') == False and tmr_data[3][:2] == 'RW':
                             rwy = tmr_data[3][2:]
-                            if len(rwy) < 1:
-                                print(icao_string)
-                                print(tmr_data)
+                            transition = tmr_data[3]
                             if rwy[-1] == 'B':
                                 rwy = 'ALL'
-                        else:
-                            rwy = 'ALL'
-                        transition = 'ALL'
+                                transition = 'ALL'
                     elif tmr_data[0][:4] == 'STAR':
                         proc = proc_map['STAR']
                         if tmr_data[3].__contains__(' ') == False and tmr_data[3][:2] == 'RW':
                             rwy = tmr_data[3][2:]
+                            transition = tmr_data[3]
                             if rwy[-1] == 'B':
                                 rwy = 'ALL'
-                        else:
-                            rwy = 'ALL'
-                        transition = tmr_data[3]
-                        if transition == ' ':
-                            transition = ''
+                                transition = 'ALL'
                     elif tmr_data[0][:5] == 'APPCH':
                         proc = proc_map['APPCH']
                         rwy = name[1:4]
                         if rwy[-1] == '-':
                             rwy = rwy[:-1]
-                        transition = tmr_data[3]
-                        if transition == ' ':
-                            transition = ''
+                        if tmr_data[3].__contains__(' ') == False:
+                            transition = tmr_data[3]
                     else:
                         continue
                     
@@ -510,6 +533,10 @@ def insert_terminals(data_path, cursor, connect):
                         elif alt_suffix == '-':
                             alt += 'B'
 
+                    vnav = None
+                    if tmr_data[28].__contains__(' ') == False:
+                        vnav = float(tmr_data[28]) * -1 / 100
+
                     center_ident = None
                     center_id = None
                     center_lat = None
@@ -532,6 +559,9 @@ def insert_terminals(data_path, cursor, connect):
                             center_lat, center_lon = center_rec[0], center_rec[1]
 
                     wpt_desc_code = tmr_data[8]
+                    is_fly_over = False
+                    if wpt_desc_code[1] == 'Y':
+                        is_fly_over = True
 
                     spd_limit_desc = None
                     spd_limit = None
@@ -547,16 +577,16 @@ def insert_terminals(data_path, cursor, connect):
                     cursor.execute('''
                         INSERT INTO TerminalLegs (TerminalID, Type, Transition, TrackCode, WptID, WptLat, WptLon, 
                                     TurnDir, NavID, NavLat, NavLon, NavBear, NavDist, Course, 
-                                    Distance, Alt, CenterID, CenterLat, CenterLon, WptDescCode)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
+                                    Distance, Alt, Vnav, CenterID, CenterLat, CenterLon, WptDescCode)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)            
                     ''', (tmr_id, type, transition, track_code, wpt_id, wpt_lat, wpt_lon, turn_dir,
-                          nav_id, nav_lat, nav_lon, nav_bear, nav_dist, course, distance, alt, center_id, 
-                          center_lat, center_lon, wpt_desc_code))
+                          nav_id, nav_lat, nav_lon, nav_bear, nav_dist, course, distance, alt, vnav,
+                          center_id, center_lat, center_lon, wpt_desc_code))
                     
                     cursor.execute('''
                         INSERT INTO TerminalLegsEx (IsFlyOver, SpeedLimit, SpeedLimitDescription)
                         VALUES (?, ?, ?)            
-                    ''', (False, spd_limit, spd_limit_desc))
+                    ''', (is_fly_over, spd_limit, spd_limit_desc))
         connect.commit()
 
 
