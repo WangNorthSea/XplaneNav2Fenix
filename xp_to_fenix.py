@@ -457,6 +457,7 @@ def insert_terminals(data_path, cursor, connect):
                     wpt_id = None
                     wpt_lat = None
                     wpt_lon = None
+                    alt_is_map = False
                     if wpt_ident.__contains__(' ') == False:
                         #search WptID
                         cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wpt_ident, country))
@@ -465,17 +466,27 @@ def insert_terminals(data_path, cursor, connect):
                             #search Runway Latitude and Longtitude
                             cursor.execute('SELECT Latitude, Longtitude FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy))
                             rwy_rec = cursor.fetchone()
-                            if rwy_rec == None:
-                                print(icao_string)
-                                print(tmr_data)
-                                print(rwy)
                             wpt_lat, wpt_lon = rwy_rec[0], rwy_rec[1]
+
+                            cursor.execute('SELECT COUNT(*) FROM Waypoints')
+                            new_wpt_id = cursor.fetchone()[0] + 1
+                            cursor.execute('''
+                                INSERT INTO Waypoints (Ident, Collocated, Name, Latitude, Longtitude)
+                                VALUES (?, ?, ?, ?, ?)            
+                            ''', (wpt_ident, False, wpt_ident, wpt_lat, wpt_lon))
+                            cursor.execute('''
+                                INSERT INTO WaypointLookup (Ident, Country, ID)
+                                VALUES (?, ?, ?)         
+                            ''', (wpt_ident, country, new_wpt_id))
+                            wpt_id = new_wpt_id
                         else:
                             if wpt_rec == None:
                                 print('Error, this CIFP data contains waypoint not in database, ignored!')
                                 print(icao_string + '.dat')
                                 print(tmr_data)
                                 continue
+                            if wpt_ident[:2] == 'RW' and proc == proc_map['APPCH']:
+                                alt_is_map = True
                             wpt_id = wpt_rec[0]
                             #search WptLat, WptLon
                             cursor.execute('SELECT Latitude, Longtitude FROM Waypoints WHERE ID = ?', (wpt_id,))
@@ -524,7 +535,9 @@ def insert_terminals(data_path, cursor, connect):
                         alt_suffix = tmr_data[22]
 
                     alt = None
-                    if tmr_data[23].__contains__(' ') == False:
+                    if alt_is_map == True:
+                        alt = 'MAP'
+                    elif tmr_data[23].__contains__(' ') == False:
                         alt = tmr_data[23]
                         while len(alt) < 5:
                             alt = '0' + alt
