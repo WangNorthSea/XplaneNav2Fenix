@@ -1,6 +1,6 @@
 import sqlite3
 
-EXTRACT_SET = ['ZBLF', 'ZULZ']
+EXTRACT_SET = ['ZUKD', 'ZBLF', 'ZULZ', 'ZGYL', 'ZLHB', 'ZLHX', 'ZYJZ', 'ZYYK']
 
 def get_new_navaid_id(src_navaid_id, src_cursor, cursor):
     src_cursor.execute('SELECT Ident, Country, NavKeyCode FROM NavaidLookup WHERE ID = ?', (src_navaid_id,))
