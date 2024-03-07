@@ -385,11 +385,15 @@ def insert_terminals(data_path, cursor, connect):
             with open(data_path + file, 'r') as tmr_lines:
                 cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_string,))
                 apt_id = cursor.fetchone()[0]
-                last_tmr_name = None
+                inserted_proc = {}
+                last_error_name = None
                 rwy_to_wpt_id = {}
                 for line in tmr_lines:
                     tmr_data = line.strip().split(',')
                     name = tmr_data[2]
+                    #check if error happened
+                    if last_error_name == name:
+                        continue
                     rwy = 'ALL'
                     transition = ''
                     if tmr_data[0][:3] == 'SID':
@@ -418,8 +422,8 @@ def insert_terminals(data_path, cursor, connect):
                     else:
                         continue
                     
-                    if last_tmr_name != name:
-                        last_tmr_name = name
+                    if inserted_proc.get(name) == None:
+                        inserted_proc[name] = True
                         #check if repeated
                         cursor.execute('SELECT COUNT(*) FROM Terminals WHERE AirportID = ? and Name = ?', (apt_id, name))
                         if cursor.fetchone()[0] != 0:
@@ -492,6 +496,11 @@ def insert_terminals(data_path, cursor, connect):
                                 print('Error, this CIFP data contains waypoint not in database, ignored!')
                                 print(icao_string + '.dat')
                                 print(tmr_data)
+                                cursor.execute('DELETE FROM TerminalLegsEx WHERE ID IN (SELECT ID FROM TerminalLegs WHERE TerminalID = ?)', (tmr_id,))
+                                cursor.execute('DELETE FROM TerminalLegs WHERE TerminalID = ?', (tmr_id,))
+                                cursor.execute('DELETE FROM Terminals WHERE ID = ?', (tmr_id,))
+                                tmr_id -= 1
+                                last_error_name = name
                                 continue
                             wpt_id = wpt_rec[0]
                             #search WptLat, WptLon

@@ -1,6 +1,8 @@
 import sqlite3
 
-EXTRACT_SET = ['ZUKD', 'ZBLF', 'ZULZ', 'ZGYL', 'ZLHB', 'ZLHX', 'ZYJZ', 'ZYYK']
+COUNTRY_SET = ['ZB', 'ZS', 'ZG', 'ZH', 'ZU', 'ZP', 'ZL', 'ZY', 'ZJ', 'ZW']
+#EXTRACT_SET = ['ZUKD', 'ZBLF', 'ZULZ', 'ZGYL', 'ZLHB', 'ZLHX', 'ZYJZ', 'ZYYK']
+EXTRACT_SET = []
 
 def get_new_navaid_id(src_navaid_id, src_cursor, cursor):
     src_cursor.execute('SELECT Ident, Country, NavKeyCode FROM NavaidLookup WHERE ID = ?', (src_navaid_id,))
@@ -98,7 +100,7 @@ def data_extract(icao_str, src_cursor, cursor):
         return
     
     for tmr_rec in tmr_rec_set:
-        if tmr_rec[6] != None:
+        if tmr_rec[6] != None and tmr_rec[6] != '00':
             tmr_rwy_id = rwy_ident_to_id[tmr_rec[6]]
         else:
             tmr_rwy_id = None
@@ -160,6 +162,14 @@ def data_extract(icao_str, src_cursor, cursor):
                 VALUES (?, ?, ?)      
             ''', (src_tmrlegex_rec[1], src_tmrlegex_rec[2], src_tmrlegex_rec[3]))
 
+def build_extract_set(src_cursor, cursor):
+    for country in COUNTRY_SET:
+        src_cursor.execute('SELECT extID FROM AirportLookup WHERE extID LIKE ?', (country + '%',))
+        for ext_id_rec in src_cursor.fetchall():
+            cursor.execute('SELECT COUNT(*) FROM AirportLookup WHERE extID = ?', (ext_id_rec[0],))
+            if cursor.fetchone()[0] == 0:
+                EXTRACT_SET.append(ext_id_rec[0][2:])
+
 
 src_db = 'C:\\ProgramData\\Fenix\\Navdata\\nd.db3.src2'
 db = 'C:\\ProgramData\\Fenix\\Navdata\\nd.processed.db3'
@@ -167,7 +177,11 @@ src_conn = sqlite3.connect(src_db)
 conn = sqlite3.connect(db)
 src_cur = src_conn.cursor()
 cur = conn.cursor()
+build_extract_set(src_cur, cur)
+extract_count = 0
 for apt in EXTRACT_SET:
+    extract_count += 1
+    print('Extracting ' + apt + ' ' + str(extract_count) + '/' + str(len(EXTRACT_SET)))
     data_extract(apt, src_cur, cur)
 conn.commit()
 src_conn.close()
