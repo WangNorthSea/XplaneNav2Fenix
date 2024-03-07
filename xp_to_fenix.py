@@ -473,6 +473,9 @@ def insert_terminals(data_path, cursor, connect):
                         else:
                             cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wpt_ident, country))
                             wpt_rec = cursor.fetchone()
+                            if wpt_rec == None:
+                                cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country like ?', (wpt_ident, country[0] + '%'))
+                                wpt_rec = cursor.fetchone()
                         if wpt_rec == None and wpt_ident[:2] == 'RW':
                             #search Runway Latitude and Longtitude
                             cursor.execute('SELECT Latitude, Longtitude FROM Runways WHERE AirportID = ? and Ident = ?', (apt_id, rwy))
