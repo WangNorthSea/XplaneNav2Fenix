@@ -190,46 +190,48 @@ def insert_airports_and_runways(src_db, data_path, cursor, connect):
                         ''', (icao_string,))
             src_rec = src_cur.fetchone()
             if src_rec == None:
-                with open(data_path + file, 'r') as file_content:
-                    apt_inserted = False
-                    for line in file_content:
-                        data_vec = line.strip().split(',')
-                        if data_vec[0][0:4] == 'RWY:':
-                            rwy_ident = data_vec[0].strip().split(':')[1][2:]
-                            if rwy_ident[-1] == ' ':
-                                rwy_ident = rwy_ident[:-1]
-                            lat_str = data_vec[7].strip().split(';')[1]
-                            lon_str = data_vec[8]
-                            
-                            if lat_str[0] == 'N':
-                                lat_sign = 1
-                            else:
-                                lat_sign = -1
+                cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_string,))
+                if cursor.fetchone() == None:
+                    with open(data_path + file, 'r') as file_content:
+                        apt_inserted = False
+                        for line in file_content:
+                            data_vec = line.strip().split(',')
+                            if data_vec[0][0:4] == 'RWY:':
+                                rwy_ident = data_vec[0].strip().split(':')[1][2:]
+                                if rwy_ident[-1] == ' ':
+                                    rwy_ident = rwy_ident[:-1]
+                                lat_str = data_vec[7].strip().split(';')[1]
+                                lon_str = data_vec[8]
+                                
+                                if lat_str[0] == 'N':
+                                    lat_sign = 1
+                                else:
+                                    lat_sign = -1
 
-                            if lon_str[0] == 'E':
-                                lon_sign = 1
-                            else:
-                                lon_sign = -1
+                                if lon_str[0] == 'E':
+                                    lon_sign = 1
+                                else:
+                                    lon_sign = -1
 
-                            lat_float = lat_sign * (float(lat_str[1:3]) + (float(lat_str[3:5]) / 60) + (float(lat_str[5:]) / 100 / 3600))
-                            lon_float = lon_sign * (float(lon_str[1:4]) + (float(lon_str[4:6]) / 60) + (float(lon_str[6:]) / 100 / 3600))
-                            #print(rwy_ident + ' ' + str(lat_float) + ' ' + str(lon_float))
-                            if apt_inserted == False:
+                                lat_float = lat_sign * (float(lat_str[1:3]) + (float(lat_str[3:5]) / 60) + (float(lat_str[5:]) / 100 / 3600))
+                                lon_float = lon_sign * (float(lon_str[1:4]) + (float(lon_str[4:6]) / 60) + (float(lon_str[6:]) / 100 / 3600))
+                                #print(rwy_ident + ' ' + str(lat_float) + ' ' + str(lon_float))
+                                if apt_inserted == False:
+                                    cursor.execute('''
+                                        INSERT INTO Airports (Name, ICAO, Latitude, Longtitude, Elevation, 
+                                            TransitionAltitude, TransitionLevel, SpeedLimit, SpeedLimitAltitude)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', ('UNKNOW', icao_string, lat_float, lon_float, 1000, 9850, 11800, 250, 10000))
+                                    cursor.execute('''
+                                        INSERT INTO AirportLookup (extID, ID) VALUES (?, ?)
+                                    ''', (icao_string[:2] + icao_string, apt_id_start))
+                                    apt_inserted = True
+                                true_heading = float(rwy_ident[:2]) * 10 - 7
                                 cursor.execute('''
-                                    INSERT INTO Airports (Name, ICAO, Latitude, Longtitude, Elevation, 
-                                        TransitionAltitude, TransitionLevel, SpeedLimit, SpeedLimitAltitude)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', ('UNKNOW', icao_string, lat_float, lon_float, 1000, 9850, 11800, 250, 10000))
-                                cursor.execute('''
-                                    INSERT INTO AirportLookup (extID, ID) VALUES (?, ?)
-                                ''', (icao_string[:2] + icao_string, apt_id_start))
-                                apt_inserted = True
-                            true_heading = float(rwy_ident[:2]) * 10 - 7
-                            cursor.execute('''
-                                INSERT INTO Runways (AirportID, Ident, TrueHeading, Length, Width, Surface, Latitude, Longtitude, Elevation)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)            
-                            ''', (apt_id_start, rwy_ident, true_heading, 11800, 148, 'CON', lat_float, lon_float, 1000))
-                    apt_id_start += 1
+                                    INSERT INTO Runways (AirportID, Ident, TrueHeading, Length, Width, Surface, Latitude, Longtitude, Elevation)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)            
+                                ''', (apt_id_start, rwy_ident, true_heading, 11800, 148, 'CON', lat_float, lon_float, 1000))
+                        apt_id_start += 1
             else:
                 cursor.execute('SELECT ID FROM Airports WHERE ICAO = ?', (icao_string,))
                 if cursor.fetchone() == None:
