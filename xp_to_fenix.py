@@ -57,11 +57,25 @@ def insert_airways(awy_file, cursor, connect):
 
 def update_leg_map(cursor, legmap, legSrcMap, legDestMap, wp1, wp1_country, wp2, wp2_country, dir, lvl, awy):
     cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wp1, wp1_country))
-    wp1_id = cursor.fetchone()[0]
+    wp1_res = cursor.fetchone()
+    if wp1_res == None:
+        print('\'' + wp1 + '\' in \'' + wp1_country + '\' not found in update_leg_map')
+        return
+    wp1_id = wp1_res[0]
+
     cursor.execute('SELECT ID FROM WaypointLookup WHERE Ident = ? and Country = ?', (wp2, wp2_country))
-    wp2_id = cursor.fetchone()[0]
+    wp2_res = cursor.fetchone()
+    if wp2_res == None:
+        print('\'' + wp2 + '\' in \'' + wp2_country + '\' not found in update_leg_map')
+        return
+    wp2_id = wp2_res[0]
+
     cursor.execute('SELECT ID FROM Airways WHERE Ident = ?', (awy,)) #the comma can not be ignored
-    awy_id = cursor.fetchone()[0]
+    awy_res = cursor.fetchone()
+    if awy_res == None:
+        print('Airway \'' + awy + '\' not found in update_leg_map')
+        return
+    awy_id = awy_res[0]
     if dir == 'F':
         leg = AirwayLeg(awy_id, lvl, wp1_id, wp2_id)
         idx = (leg.awy_id, leg.wp1_id, leg.wp2_id)
